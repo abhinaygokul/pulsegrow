@@ -1,0 +1,63 @@
+/* Dashboard specific styles */
+
+.dashboard-header {
+    margin-bottom: var(--spacing-xl);
+}
+
+.dashboard-header h2 {
+    font-size: 2rem;
+    /* Display Small */
+    font-weight: 400;
+    color: var(--md-sys-color-on-surface);
+    margin-bottom: var(--spacing-xs);
+    font-family: var(--font-family-base);
+}
+
+.subtitle {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 1.1rem;
+}
+
+.error-banner {
+    background-color: var(--md-sys-color-error);
+    color: var(--md-sys-color-on-error);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    font-weight: 500;
+}
+
+/* Simplified Dashboard Layout */
+.bento-layout-simple {
+    margin-bottom: 40px;
+    display: flex;
+    justify-content: center;
+}
+
+.health-gauge-center {
+    background-color: var(--md-sys-color-surface);
+    border-radius: var(--radius-xl);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    width: 100%;
+    max-width: 450px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.section-title {
+    font-size: 1.5rem;
+    color: var(--md-sys-color-on-surface);
+    margin: 40px 0 24px 0;
+    font-weight: 500;
+}
+
+@media (max-width: 1024px) {
+    .bento-grid {
+        grid-template-columns: 1fr;
+    }
+}

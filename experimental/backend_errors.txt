@@ -1,7 +1,0 @@
-
---- 2025-12-20 03:33:37.384116 ---
-CRITICAL ERROR in analyze_video: name 'analytics' is not defined
-Traceback (most recent call last):
-  File "/Users/abhi/Dev/PulseGrow/backend/api/endpoints.py", line 312, in analyze_video
-    dist_main = analytics.calculate_video_sentiment_distribution(video_id)
-NameError: name 'analytics' is not defined

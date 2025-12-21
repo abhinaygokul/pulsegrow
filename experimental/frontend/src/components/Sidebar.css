@@ -1,0 +1,132 @@
+.sidebar {
+    width: 250px;
+    background-color: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    border-right: 1px solid var(--md-sys-color-outline);
+    z-index: 100;
+}
+
+.sidebar-header {
+    height: 80px;
+    /* Standard MD3 Header Height */
+    display: flex;
+    align-items: center;
+    padding: 0 var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
+}
+
+.logo-icon {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+    margin-right: var(--spacing-md);
+}
+
+.logo-text {
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: var(--md-sys-color-on-surface);
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 0 var(--spacing-md);
+    /* Add padding for floating pills */
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.nav-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    padding: 16px 24px;
+    /* Large touch target */
+    background: none;
+    border: none;
+    color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    text-align: left;
+    border-radius: var(--radius-full);
+    /* Pill shape */
+}
+
+.nav-item:hover {
+    background-color: var(--md-sys-color-surface-variant);
+    color: var(--md-sys-color-on-surface);
+}
+
+.nav-item.active {
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    font-weight: 700;
+}
+
+.nav-icon {
+    margin-right: var(--spacing-md);
+    font-size: 1.25rem;
+}
+
+.sidebar-footer {
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    border-radius: var(--radius-full);
+}
+
+.user-profile:hover {
+    background-color: var(--md-sys-color-surface-variant);
+}
+
+.avatar {
+    width: 40px;
+    height: 40px;
+    background-color: var(--md-sys-color-tertiary-container);
+    color: var(--md-sys-color-on-tertiary-container);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: var(--spacing-md);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+}
+
+.user-role {
+    font-size: 0.85rem;
+    color: var(--md-sys-color-on-surface-variant);
+}

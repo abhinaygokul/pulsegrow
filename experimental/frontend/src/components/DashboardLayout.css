@@ -1,0 +1,49 @@
+.dashboard-layout {
+    display: flex;
+    min-height: 100vh;
+    background-color: var(--md-sys-color-background);
+}
+
+.dashboard-main {
+    flex: 1;
+    margin-left: 250px;
+    /* Width of sidebar */
+    display: flex;
+    flex-direction: column;
+}
+
+.top-bar {
+    height: 80px;
+    /* MD3 Header Height */
+    background-color: var(--md-sys-color-surface);
+    /* No border, just elevation optionally, or keep it clean */
+    display: flex;
+    align-items: center;
+    padding: 0 var(--spacing-xl);
+    /* box-shadow: var(--elevation-1); -- Optional */
+}
+
+.breadcrumbs {
+    font-size: 1rem;
+    color: var(--md-sys-color-on-surface-variant);
+    font-weight: 500;
+}
+
+.crumb-separator {
+    margin: 0 var(--spacing-sm);
+    color: var(--md-sys-color-outline);
+}
+
+.crumb-page {
+    color: var(--md-sys-color-on-surface);
+    font-weight: 600;
+}
+
+.content-area {
+    padding: var(--spacing-xl);
+    flex: 1;
+    overflow-y: auto;
+    max-width: 1600px;
+    width: 100%;
+    box-sizing: border-box;
+}

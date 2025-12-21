@@ -1,0 +1,53 @@
+.charts-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    width: 100%;
+}
+
+.chart-card {
+    background-color: var(--color-surface);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    /* Using new elevation var via mapping */
+    display: flex;
+    flex-direction: column;
+}
+
+.chart-card h3 {
+    margin: 0 0 var(--spacing-md) 0;
+    font-size: 1.1rem;
+    color: var(--color-text-main);
+}
+
+.chart-wrapper {
+    flex: 1;
+    min-height: 250px;
+}
+
+@media (max-width: 1024px) {
+    .charts-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.charts-container.empty-state {
+    justify-content: center;
+    align-items: center;
+    min-height: 500px;
+    background-color: var(--md-sys-color-surface-container-low);
+    border-radius: var(--radius-xl);
+    border: 2px dashed var(--md-sys-color-outline-variant);
+}
+
+.empty-charts-message {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.empty-charts-message p {
+    font-size: 1.1rem;
+    font-weight: 500;
+}

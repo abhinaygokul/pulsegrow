@@ -1,0 +1,124 @@
+.table-container {
+    background-color: var(--md-sys-color-surface);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin-top: var(--spacing-lg);
+    border: 1px solid var(--md-sys-color-outline);
+}
+
+.video-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.video-table th {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background-color: var(--md-sys-color-surface-variant);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--md-sys-color-on-surface-variant);
+    border-bottom: 1px solid var(--md-sys-color-outline);
+}
+
+.video-table td {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--md-sys-color-surface-variant);
+    vertical-align: middle;
+    color: var(--md-sys-color-on-surface);
+}
+
+.video-table tr:last-child td {
+    border-bottom: none;
+}
+
+.video-table tr:hover {
+    background-color: var(--md-sys-color-surface-variant);
+    /* Tonal overlay */
+    /* Adjust opacity if possible, or just use the variant color */
+}
+
+.th-video {
+    width: 45%;
+}
+
+.td-video {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.td-video.clickable {
+    cursor: pointer;
+}
+
+.td-video.clickable:hover .video-title {
+    color: var(--md-sys-color-primary);
+}
+
+.video-thumb {
+    width: 80px;
+    /* Slightly larger */
+    height: 45px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    background-color: var(--md-sys-color-surface-variant);
+}
+
+.video-info {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.video-title {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+    transition: color 0.2s;
+    font-size: 0.95rem;
+}
+
+.video-id {
+    font-size: 0.75rem;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.no-data {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--md-sys-color-on-surface-variant);
+    background-color: var(--md-sys-color-surface);
+    border-radius: var(--radius-xl);
+    border: 2px dashed var(--md-sys-color-outline);
+}
+
+.analyze-btn {
+    background-color: var(--md-sys-color-primary-container);
+    border: none;
+    border-radius: var(--radius-full);
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--md-sys-color-on-primary-container);
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
+}
+
+.analyze-btn:hover:not(:disabled) {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    box-shadow: var(--shadow-md);
+}
+
+.analyze-btn:disabled {
+    background-color: var(--md-sys-color-surface-variant);
+    color: var(--md-sys-color-on-surface-variant);
+    box-shadow: none;
+    cursor: default;
+    opacity: 0.7;
+}

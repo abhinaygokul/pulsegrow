@@ -20,16 +20,11 @@ class AnalyticsService:
         weighted_score_sum = 0.0
 
         for comment in recent_comments:
-            # Base weight is 1, add log(likes + 1) to prevent huge likes from skewing too much, 
-            # or just linear if per PR/FAQ "50 likes matters more than 50 comments". 
-            # PR/FAQ says "Like-weighted emotional contribution".
+            # Linear engagement impact: 1 + likes
             weight = 1.0 + comment.like_count
             
-            sentiment_val = 0.0
-            if comment.sentiment == SentimentType.POSITIVE:
-                sentiment_val = 1.0
-            elif comment.sentiment == SentimentType.NEGATIVE:
-                sentiment_val = -1.0
+            # Use granular VADER score (-1.0 to 1.0)
+            sentiment_val = comment.vader_score if comment.vader_score is not None else 0.0
             
             weighted_score_sum += sentiment_val * weight
             total_weight += weight
@@ -57,44 +52,72 @@ class AnalyticsService:
 
     def generate_video_insights(self, video_id: str):
         """
-        Generates rule-based insights since we are running locally without an LLM.
+        Generates categorized rule-based insights for a more professional dashboard.
         """
         comments = self.db.query(Comment).filter(Comment.video_id == video_id).all()
         if not comments:
-            return ["No comments to analyze yet."]
+            return {"Tone": ["Awaiting comments..."], "Focus": ["No data yet."], "Creator Tips": ["Analyze to see tips."]}
         
-        insights = []
+        categories = {
+            "Tone": [],
+            "Focus": [],
+            "Creator Tips": []
+        }
         
-        # 1. Sentiment Dominance
+        # 1. Sentiment Dominance & Tone
         pos = sum(1 for c in comments if c.sentiment == SentimentType.POSITIVE)
         neg = sum(1 for c in comments if c.sentiment == SentimentType.NEGATIVE)
         total = len(comments)
         
-        if pos / total > 0.7:
-            insights.append("🌟 Overwhelmingly Positive: The audience loves this content.")
-        elif neg / total > 0.4:
-            insights.append("⚠️ High Negativity: This video is receiving significant criticism.")
-        elif pos > 0 and neg > 0 and abs(pos - neg) < (total * 0.1):
-             insights.append("⚖️ Polarizing Content: The audience is split between positive and negative reactions.")
-        else:
-             insights.append("💬 Balanced Discussion: Calculating sentiment spread...")
+        pos_ratio = pos / total
+        neg_ratio = neg / total
 
-        # 2. Key Topics (Simple Frequency - Heuristic)
-        # In a real local LLM setup we would use BERTopic, but here we use word freq for speed
+        if pos_ratio > 0.7:
+            categories["Tone"].append("🌟 Overwhelmingly Positive: The audience is highly supportive.")
+        elif neg_ratio > 0.4:
+            categories["Tone"].append("⚠️ Defensive/Critical: Significant pushback detected.")
+        elif abs(pos - neg) < (total * 0.15):
+             categories["Tone"].append("⚖️ Highly Polarizing: Deep split in audience opinion.")
+        else:
+             categories["Tone"].append("💬 Constructive/Mixed: Balanced emotional response.")
+
+        # 2. Audience Vibe (Intuitive Step)
         text = " ".join([c.text for c in comments]).lower()
-        # Basic stop words 
-        stop_words = set(["the", "is", "and", "to", "a", "of", "in", "it", "that", "this", "for", "on", "you", "my", "with", "video", "bro", "sir", "mam"])
-        words = [w for w in text.split() if w.isalnum() and len(w) > 3 and w not in stop_words]
+        vibe_categories = {
+            "Community Bonding": ["bro", "sir", "buddy", "man", "love", "thanks", "thank", "nice"],
+            "Technical Feedback": ["fix", "how", "why", "bug", "broken", "issue", "problem", "specs", "price"],
+            "Pure Hype": ["fire", "lit", "amazing", "goat", "op", "insane"],
+            "Critical Review": ["worst", "disappointed", "never", "bad", "scam", "waste"]
+        }
         
-        if words:
-            from collections import Counter
-            common = Counter(words).most_common(3)
-            topics = ", ".join([w[0] for w in common])
-            insights.append(f"🔥 Hot Topics: Users are frequently mentioning: {topics}")
-            
-        # 3. Engagement Insight
+        detected_vibes = []
+        for vibe, keywords in vibe_categories.items():
+            if any(k in text for k in keywords):
+                detected_vibes.append(vibe)
+        
+        if detected_vibes:
+            categories["Vibe"] = [f"🌊 Principal Vibe: {', '.join(detected_vibes[:2])}"]
+        else:
+            categories["Vibe"] = ["💬 Neutral Discussion: Audience is observing without strong specific sentiment themes."]
+        
+        # Remove old Focus if exists or just use Vibe instead
+        # Using "Community Context" for a more intuitive feel as requested
+        categories["Community Vibe"] = categories.pop("Vibe")
+        del categories["Focus"] 
+
+        # 3. Creator Tips (Actionability)
         total_likes = sum(c.like_count for c in comments)
-        if total_likes > total * 2:
-            insights.append("🚀 High Engagement: Comments are generating a lot of likes/discussion.")
-            
-        return insights
+        
+        if total_likes > total * 3:
+            categories["Creator Tips"].append("🚀 Double Down: High engagement suggests this is a viral hook.")
+        
+        if neg_ratio > 0.3:
+             categories["Creator Tips"].append("🩹 Engagement Tip: Address the top technical concerns in a pinned comment.")
+        
+        if pos_ratio > 0.8:
+             categories["Creator Tips"].append("🎁 Celebration: High audience love—perfect for a community shoutout.")
+             
+        if not categories["Creator Tips"]:
+            categories["Creator Tips"].append("📈 Stability: Content is performing within normal engagement bounds.")
+
+        return categories

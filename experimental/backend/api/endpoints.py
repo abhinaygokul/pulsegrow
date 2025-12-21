@@ -81,7 +81,29 @@ def get_channel(channel_id: str, db: Session = Depends(get_db)):
 @router.get("/channel/{channel_id}/videos")
 def get_channel_videos(channel_id: str, db: Session = Depends(get_db)):
     videos = db.query(Video).filter(Video.channel_id == channel_id).all()
-    return videos
+    analytics = AnalyticsService(db)
+    
+    results = []
+    for v in videos:
+        v_dict = {
+            "id": v.id,
+            "title": v.title,
+            "thumbnail_url": v.thumbnail_url,
+            "published_at": v.published_at.isoformat() if v.published_at else None,
+            "view_count": v.view_count,
+            "like_count": v.like_count,
+            "comment_count": v.comment_count,
+            "sentiment_score": v.sentiment_score,
+            "analysis_status": v.analysis_status,
+        }
+        
+        if v.analysis_status == "completed":
+            v_dict["distribution"] = analytics.calculate_video_sentiment_distribution(v.id)
+            v_dict["insights"] = analytics.generate_video_insights(v.id)
+            
+        results.append(v_dict)
+        
+    return results
 
 @router.get("/video/{video_id}")
 def get_video_details(video_id: str, db: Session = Depends(get_db)):
@@ -267,7 +289,8 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, analyze_all:
         # Standard Quick Analysis (Top 10)
         print(f"DEBUG: Quick analysis for video {video_id}...")
         try:
-            comments_data = youtube_service.get_video_comments(video_id, max_results=10)
+            # LIMIT TO 5 COMMENTS to avoid Gemini Free Tier 429 Errors (Rate Limit)
+            comments_data = youtube_service.get_video_comments(video_id, max_results=5)
         except Exception as e:
             print(f"ERROR: Failed to fetch value comments: {e}")
             comments_data = [] 
@@ -305,11 +328,33 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, analyze_all:
             
         db.commit()
         
+        # Recalculate and update the video's aggregate score using granular VADER scores
+        total_score = 0.0
+        total_weight = 0.0
+        final_comments = db.query(Comment).filter(Comment.video_id == video_id).all()
+        for c in final_comments:
+            # Use the granular vader_score instead of discrete +1/0/-1
+            val = c.vader_score if c.vader_score is not None else 0.0
+            
+            # Engagement weighting
+            w = 1.0 + c.like_count
+            total_score += val * w
+            total_weight += w
+            
+        if total_weight > 0:
+            video.sentiment_score = total_score / total_weight
+        
         video.analysis_status = "completed"
         db.commit()
 
-        # Return standard response
+        # Update Channel Health Score immediately so HealthGauge updates
         analytics = AnalyticsService(db)
+        channel = db.query(Channel).filter(Channel.id == video.channel_id).first()
+        if channel:
+            channel.health_score = analytics.calculate_health_score(channel.id)
+            db.commit()
+
+        # Return standard response with explicit dict to avoid serialization issues
         dist_main = analytics.calculate_video_sentiment_distribution(video_id)
         comparison_data = _get_comparison_data(db, video_id)
         insights = analytics.generate_video_insights(video_id)
@@ -317,11 +362,21 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, analyze_all:
 
         return {
             "status": "analyzed",
-            "video": video,
+            "video": {
+                "id": video.id,
+                "title": video.title,
+                "thumbnail_url": video.thumbnail_url,
+                "sentiment_score": video.sentiment_score,
+                "analysis_status": video.analysis_status,
+                "view_count": video.view_count,
+                "like_count": video.like_count,
+                "published_at": video.published_at.isoformat() if video.published_at else None
+            },
             "sentiment_distribution": dist_main,
             "comparison": comparison_data,
             "insights": insights,
-            "analyzed_comment_count": analyzed_count
+            "analyzed_comment_count": analyzed_count,
+            "health_score": channel.health_score if channel else 0.0
         }
 
     except Exception as e:

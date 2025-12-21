@@ -10,6 +10,7 @@ class LocalSentimentService:
         
         # 1. Initialize VADER (Fast, Rule-based, Good for social media slang)
         self.vader = SentimentIntensityAnalyzer()
+        self.gemini_model = None
         
         # 🚀 CUSTOM: Add Tanglish/Hinglish/Indian Slang to VADER Lexicon
         # ... (Keeping existing lexicon updates) ...
@@ -42,16 +43,13 @@ class LocalSentimentService:
         self.vader.lexicon.update(new_words)
         print(f"VADER Initialized with {len(new_words)} custom Tanglish concepts.")
 
-        # 2. Initialize Gemini (Optional High-Q Model)
-        self.gemini_model = None
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            try:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
-                print("Gemini 2.5 Flash Initialized for Sentiment Analysis.")
-            except Exception as e:
-                print(f"Failed to initialize Gemini: {e}")
+            # try:
+            #     genai.configure(api_key=api_key)
+            #     self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+            #     print("Gemini 2.0 Flash Initialized for Sentiment Analysis.")
+        #     except Exception as e:
+        #         print(f"Failed to initialize Gemini: {e}")
+        pass
 
         self.classifier = None # Deprecated BERT
 
@@ -116,7 +114,10 @@ class LocalSentimentService:
                 result["final_score"] = g_score
 
             except Exception as e:
-                print(f"Gemini Error: {e}. Falling back to VADER.")
+                import traceback
+                print(f"Gemini Error for comment '{comment_text[:20]}...': {e}")
+                traceback.print_exc()
+                print("Falling back to VADER.")
         
         # 3. Fallback Logic (if Gemini didn't run or failed)
         if not result["gemini"]["available"]:

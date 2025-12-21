@@ -2,7 +2,14 @@ from googleapiclient.discovery import build
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+from pathlib import Path
+
+# Explicitly load from backend/.env or parent .env
+env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+if not env_path.exists():
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+
+load_dotenv(dotenv_path=env_path)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
@@ -58,24 +65,39 @@ class YouTubeService:
         if not self.youtube or channel_id == "demo":
             return [
                 {
-                    "contentDetails": {"videoId": "demo_vid_1"},
+                    "id": "Ks-_Mh1QhMc",
+                    "contentDetails": {"videoId": "Ks-_Mh1QhMc"},
                     "snippet": {
-                        "title": "Why we are building PulseGrow (Launch Video)",
-                        "publishedAt": "2023-10-25T10:00:00Z"
+                        "title": "Your Body Language May Shape Who You Are | Amy Cuddy",
+                        "publishedAt": "2012-10-01T10:00:00Z",
+                        "thumbnails": {
+                            "medium": {"url": "https://i.ytimg.com/vi/Ks-_Mh1QhMc/mqdefault.jpg"},
+                            "default": {"url": "https://i.ytimg.com/vi/Ks-_Mh1QhMc/default.jpg"}
+                        }
                     }
                 },
                 {
-                   "contentDetails": {"videoId": "demo_vid_2"},
+                   "id": "ufJTTcuXVUU",
+                   "contentDetails": {"videoId": "ufJTTcuXVUU"},
                     "snippet": {
-                        "title": "Understanding Audience Sentiment",
-                        "publishedAt": "2023-11-01T14:30:00Z"
+                        "title": "The power of vulnerability | Brené Brown",
+                        "publishedAt": "2011-01-01T14:30:00Z",
+                        "thumbnails": {
+                            "medium": {"url": "https://i.ytimg.com/vi/ufJTTcuXVUU/mqdefault.jpg"},
+                            "default": {"url": "https://i.ytimg.com/vi/ufJTTcuXVUU/default.jpg"}
+                        }
                     } 
                 },
                 {
-                   "contentDetails": {"videoId": "demo_vid_3"},
+                   "id": "rrkrvAUbU9Y",
+                   "contentDetails": {"videoId": "rrkrvAUbU9Y"},
                     "snippet": {
-                        "title": "Q&A Session: Future Roadmap",
-                        "publishedAt": "2023-11-05T09:15:00Z"
+                        "title": "The puzzle of motivation | Dan Pink",
+                        "publishedAt": "2009-08-25T09:15:00Z",
+                        "thumbnails": {
+                            "medium": {"url": "https://i.ytimg.com/vi/rrkrvAUbU9Y/mqdefault.jpg"},
+                            "default": {"url": "https://i.ytimg.com/vi/rrkrvAUbU9Y/default.jpg"}
+                        }
                     } 
                 }
             ]

@@ -8,3 +8,6 @@ google-api-python-client
 python-dotenv
 pandas
 numpy
+vaderSentiment
+transformers
+torch
