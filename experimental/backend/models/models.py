@@ -60,4 +60,7 @@ class Comment(Base):
     gemini_sentiment = Column(String, default="neutral")
     gemini_score = Column(Float, default=0.0)
     
+    emoji_detected = Column(Integer, default=0) # 0 for False, 1 for True (SQLite compatible)
+    topics = Column(Text, default="[]") # JSON string of top topics
+    
     video = relationship("Video", back_populates="comments")

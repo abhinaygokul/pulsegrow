@@ -43,90 +43,182 @@ class LocalSentimentService:
         self.vader.lexicon.update(new_words)
         print(f"VADER Initialized with {len(new_words)} custom Tanglish concepts.")
 
-            # try:
-            #     genai.configure(api_key=api_key)
-            #     self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
-            #     print("Gemini 2.0 Flash Initialized for Sentiment Analysis.")
-        #     except Exception as e:
-        #         print(f"Failed to initialize Gemini: {e}")
-        pass
+        # 2. Initialize Gemini (If API Key Available)
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            try:
+                genai.configure(api_key=api_key)
+                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                print("Gemini 2.0 Flash Initialized for Sentiment Analysis.")
+            except Exception as e:
+                print(f"Failed to initialize Gemini: {e}")
 
         self.classifier = None # Deprecated BERT
 
-    def _load_transformer(self):
-        if self.classifier:
-            return
-
-        try:
-            print("Loading Transformer Model (Lazy Load)...")
-            # We use nlptown/bert-base-multilingual-uncased-sentiment 
-            # It's a robust alternative to raw MuRIL for sentiment, covering Indian languages.
-            self.classifier = pipeline(
-                "sentiment-analysis", 
-                model="nlptown/bert-base-multilingual-uncased-sentiment",
-                device=0 if torch.cuda.is_available() else -1
-            )
-            print("Transformer Model Loaded.")
-        except Exception as e:
-            print(f"Warning: Could not load Transformer model: {e}")
-            self.classifier = None
-
     def analyze_comment(self, comment_text: str):
+        """
+        STRICT Emoji-Aware Sentiment Analysis for a single comment.
+        """
+        import re
         result = {
             "final_sentiment": "neutral",
             "final_score": 0.0,
             "vader": {"sentiment": "neutral", "score": 0.0},
-            "gemini": {"sentiment": "neutral", "score": 0.0, "available": False}
+            "gemini": {"sentiment": "neutral", "score": 0.0, "available": False},
+            "emoji_detected": False,
+            "topics": []
         }
 
-        # 1. Run VADER (Always)
-        clean_text = comment_text.lower()
-        vader_scores = self.vader.polarity_scores(clean_text)
+        # 1. Emoji Detection
+        emoji_pattern = re.compile(r'[\U00010000-\U0010ffff]', flags=re.UNICODE)
+        emojis = emoji_pattern.findall(comment_text)
+        result["emoji_detected"] = len(emojis) > 0
+
+        # Topic extraction
+        words = re.findall(r'\b\w{4,}\b', comment_text.lower())
+        stop_words = {'this', 'that', 'with', 'from', 'have', 'your', 'about', 'really', 'there', 'they'}
+        result["topics"] = list(set([w for w in words if w not in stop_words]))[:3]
+
+        # 2. VADER Baseline
+        vader_scores = self.vader.polarity_scores(comment_text)
         vader_compound = vader_scores['compound']
         
         v_sentiment = "neutral"
         if vader_compound >= 0.05: v_sentiment = "positive"
         elif vader_compound <= -0.05: v_sentiment = "negative"
-        
         result["vader"] = {"sentiment": v_sentiment, "score": vader_compound}
 
-        # 2. Run Gemini (If Available)
+        # 3. Gemini (If available)
         if self.gemini_model:
             try:
-                response = self.gemini_model.generate_content(
-                    f"Classify the sentiment of this comment as 'positive', 'neutral', or 'negative'. Return ONLY the label.\n\nComment: \"{comment_text}\""
+                prompt = (
+                    "Analyze sentiment for this comment independently. Interpret emojis as sentiment signals. "
+                    "If a comment contains ONLY emojis, infer sentiment from them. "
+                    "Classify as: positive, neutral, or negative. Assign a score between -1.0 and +1.0. "
+                    "Extract 1-3 key topics. Output JSON ONLY.\n\n"
+                    f"Format: {{\"sentiment\": \"label\", \"score\": 0.0, \"topics\": [\"topic1\"]}}\n\n"
+                    f"Comment: \"{comment_text}\""
                 )
-                g_text = response.text.strip().lower()
-                
-                g_sentiment = "neutral"
-                g_score = 0.0
-                if "positive" in g_text: 
-                    g_sentiment = "positive"
-                    g_score = 0.9
-                elif "negative" in g_text: 
-                    g_sentiment = "negative"
-                    g_score = -0.9
-                
-                result["gemini"] = {"sentiment": g_sentiment, "score": g_score, "available": True}
-                
-                # If Gemini is available, it dictates the Final Decision
-                result["final_sentiment"] = g_sentiment
-                result["final_score"] = g_score
-
+                response = self.gemini_model.generate_content(prompt)
+                try:
+                    import json
+                    g_data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
+                    result["gemini"] = {
+                        "sentiment": g_data.get("sentiment", "neutral"),
+                        "score": float(g_data.get("score", 0.0)),
+                        "available": True
+                    }
+                    result["topics"] = list(set(result["topics"] + g_data.get("topics", [])))[:3]
+                    result["final_sentiment"] = result["gemini"]["sentiment"]
+                    result["final_score"] = result["gemini"]["score"]
+                except:
+                    result["final_sentiment"] = v_sentiment
+                    result["final_score"] = vader_compound
             except Exception as e:
-                import traceback
-                print(f"Gemini Error for comment '{comment_text[:20]}...': {e}")
-                traceback.print_exc()
-                print("Falling back to VADER.")
-        
-        # 3. Fallback Logic (if Gemini didn't run or failed)
-        if not result["gemini"]["available"]:
-            # Use Hybrid VADER + Transformer logic here if we wanted, 
-            # but for simplicity of "Comparision" requested, we'll stick to VADER as the baseline
-            # or allow the previous logic. 
-            # Let's use the VADER result as final for now or the Hybrid if we re-enabled it.
-            # To keep it clean for the user's specific "Compare VADER vs Gemini" request:
-            result["final_sentiment"] = result["vader"]["sentiment"]
-            result["final_score"] = result["vader"]["score"]
+                print(f"Gemini Error: {e}")
+                result["final_sentiment"] = v_sentiment
+                result["final_score"] = vader_compound
+        else:
+            result["final_sentiment"] = v_sentiment
+            result["final_score"] = vader_compound
 
         return result
+
+    def analyze_comment_batch(self, comments_list: list, video_id: str, batch_id: str):
+        """
+        Rate-Limit-Safe Batched Analysis.
+        Processes up to 5 comments in a single Gemini call.
+        """
+        import re
+        import json
+
+        result_batch = {
+            "video_id": video_id,
+            "batch_id": batch_id,
+            "results": []
+        }
+
+        if not self.gemini_model:
+            # Fallback to VADER for all if Gemini is down
+            for c in comments_list:
+                ana = self.analyze_comment(c["text"])
+                result_batch["results"].append({
+                    "comment_id": c["id"],
+                    "sentiment": ana["final_sentiment"],
+                    "score": ana["final_score"],
+                    "emoji": ana["emoji_detected"]
+                })
+            return result_batch
+
+        # Construct Batched Prompt
+        batch_prompt = (
+            "Perform emoji-aware sentiment analysis on the following batch of YouTube comments. "
+            "For each comment, interpret emojis as sentiment signals. "
+            "Labels: positive | neutral | negative. Score: -1.0 to 1.0. "
+            "If a comment is ONLY emojis, infer sentiment from them. "
+            "Return JSON ONLY. No summaries. No markdown blocks.\n\n"
+            "Output Format:\n"
+            "{\n"
+            "  \"video_id\": \"<v_id>\",\n"
+            "  \"batch_id\": \"<b_id>\",\n"
+            "  \"results\": [\n"
+            "    {\"comment_id\": \"id\", \"sentiment\": \"label\", \"score\": 0.0, \"emoji\": true|false}\n"
+            "  ]\n"
+            "}\n\n"
+            "Comments to analyze:\n"
+        )
+        
+        comments_payload = []
+        for c in comments_list:
+            comments_payload.append({"id": c["id"], "text": c["text"]})
+        
+        batch_prompt += json.dumps(comments_payload)
+
+        try:
+            response = self.gemini_model.generate_content(batch_prompt)
+            try:
+                # Use regex to find the JSON block in case of conversational fluff
+                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+                if json_match:
+                    g_data = json.loads(json_match.group())
+                    # Validate results against requested IDs to ensure Gemini didn't hallucinate/skip
+                    g_results = {r["comment_id"]: r for r in g_data.get("results", [])}
+                    
+                    for c in comments_list:
+                        if c["id"] in g_results:
+                            result_batch["results"].append(g_results[c["id"]])
+                        else:
+                            # Fallback for missing items in batch response
+                            ana = self.analyze_comment(c["text"])
+                            result_batch["results"].append({
+                                "comment_id": c["id"],
+                                "sentiment": ana["final_sentiment"],
+                                "score": ana["final_score"],
+                                "emoji": ana["emoji_detected"]
+                            })
+                else:
+                    raise ValueError("No JSON found in response")
+            except Exception as e:
+                print(f"Batch Parsing Error: {e}")
+                # Fallback to individual analysis if batch response is malformed
+                for c in comments_list:
+                    ana = self.analyze_comment(c["text"])
+                    result_batch["results"].append({
+                        "comment_id": c["id"],
+                        "sentiment": ana["final_sentiment"],
+                        "score": ana["final_score"],
+                        "emoji": ana["emoji_detected"]
+                    })
+        except Exception as e:
+            print(f"Batch Gemini Error: {e}")
+            for c in comments_list:
+                ana = self.analyze_comment(c["text"])
+                result_batch["results"].append({
+                    "comment_id": c["id"],
+                    "sentiment": ana["final_sentiment"],
+                    "score": ana["final_score"],
+                    "emoji": ana["emoji_detected"]
+                })
+
+        return result_batch
+

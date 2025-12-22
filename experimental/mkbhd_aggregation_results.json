@@ -1,0 +1,188 @@
+{
+  "channel_summary": {
+    "overall_avg_sentiment": 0.16555226666666656,
+    "video_count": 10
+  },
+  "videos": [
+    {
+      "video_id": "NC1nzXq6Rh4",
+      "title": "PROOF the Trifold is Awesome!",
+      "avg_sentiment": 0.1600216666666666,
+      "sentiment_distribution": {
+        "positive": 140,
+        "neutral": 111,
+        "negative": 49
+      },
+      "emoji_driven_pct": 17.666666666666668,
+      "top_topics": [
+        "what",
+        "apple",
+        "trifold",
+        "doug",
+        "huawei"
+      ]
+    },
+    {
+      "video_id": "trsHTKqmZOk",
+      "title": "Samsung Galaxy Z Tri Fold Impressions: NOW It Makes Sense!",
+      "avg_sentiment": 0.16508433333333325,
+      "sentiment_distribution": {
+        "positive": 139,
+        "neutral": 99,
+        "negative": 62
+      },
+      "emoji_driven_pct": 11.0,
+      "top_topics": [
+        "more",
+        "what",
+        "price",
+        "great",
+        "should"
+      ]
+    },
+    {
+      "video_id": "sfyL4BswUeE",
+      "title": "Smartphone Awards 2025!",
+      "avg_sentiment": 0.2731276666666662,
+      "sentiment_distribution": {
+        "positive": 167,
+        "neutral": 73,
+        "negative": 60
+      },
+      "emoji_driven_pct": 19.0,
+      "top_topics": [
+        "best",
+        "what",
+        "iphone",
+        "apple",
+        "more"
+      ]
+    },
+    {
+      "video_id": "Mb6H7trzMfI",
+      "title": "Driving Xiaomi's Electric Car: Are we Cooked?",
+      "avg_sentiment": 0.12781333333333328,
+      "sentiment_distribution": {
+        "positive": 142,
+        "neutral": 78,
+        "negative": 80
+      },
+      "emoji_driven_pct": 9.666666666666666,
+      "top_topics": [
+        "more",
+        "xiaomi",
+        "price",
+        "what",
+        "chinese"
+      ]
+    },
+    {
+      "video_id": "Qqyp00JPJZI",
+      "title": "\"Siri Isn't That Bad\"",
+      "avg_sentiment": 0.14509700000000003,
+      "sentiment_distribution": {
+        "positive": 151,
+        "neutral": 72,
+        "negative": 77
+      },
+      "emoji_driven_pct": 15.666666666666668,
+      "top_topics": [
+        "siri",
+        "more",
+        "magic",
+        "mouse",
+        "than"
+      ]
+    },
+    {
+      "video_id": "KW21q_7U6Ao",
+      "title": "What's on my Phone 2026!",
+      "avg_sentiment": 0.14877199999999996,
+      "sentiment_distribution": {
+        "positive": 128,
+        "neutral": 106,
+        "negative": 66
+      },
+      "emoji_driven_pct": 16.333333333333332,
+      "top_topics": [
+        "what",
+        "2026",
+        "using",
+        "phone",
+        "wallpaper"
+      ]
+    },
+    {
+      "video_id": "n4Xe6yQ1jIs",
+      "title": "This feels illegal",
+      "avg_sentiment": 0.11985399999999989,
+      "sentiment_distribution": {
+        "positive": 129,
+        "neutral": 108,
+        "negative": 63
+      },
+      "emoji_driven_pct": 17.333333333333336,
+      "top_topics": [
+        "apple",
+        "what",
+        "should",
+        "work",
+        "airdrop"
+      ]
+    },
+    {
+      "video_id": "RvP-uVNwnXo",
+      "title": "Dope Tech: STILL so good!",
+      "avg_sentiment": 0.19400033333333314,
+      "sentiment_distribution": {
+        "positive": 148,
+        "neutral": 97,
+        "negative": 55
+      },
+      "emoji_driven_pct": 11.666666666666666,
+      "top_topics": [
+        "mouse",
+        "more",
+        "still",
+        "need",
+        "ipad"
+      ]
+    },
+    {
+      "video_id": "jrzK4xL_W4Q",
+      "title": "This is not normal",
+      "avg_sentiment": 0.10961600000000005,
+      "sentiment_distribution": {
+        "positive": 107,
+        "neutral": 148,
+        "negative": 45
+      },
+      "emoji_driven_pct": 23.666666666666668,
+      "top_topics": [
+        "phone",
+        "knife",
+        "pocket",
+        "what",
+        "case"
+      ]
+    },
+    {
+      "video_id": "2MdQWo9fHZs",
+      "title": "OnePlus 15 Review: This is Not Normal!",
+      "avg_sentiment": 0.21213633333333326,
+      "sentiment_distribution": {
+        "positive": 157,
+        "neutral": 89,
+        "negative": 54
+      },
+      "emoji_driven_pct": 16.333333333333332,
+      "top_topics": [
+        "still",
+        "great",
+        "been",
+        "phone",
+        "what"
+      ]
+    }
+  ]
+}

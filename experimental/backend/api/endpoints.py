@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.services.youtube_service import YouTubeService
@@ -14,7 +14,7 @@ sentiment_service = LocalSentimentService()
 import traceback
 
 @router.post("/channel/{channel_id}/analyze")
-def analyze_channel(channel_id: str, db: Session = Depends(get_db)):
+def analyze_channel(channel_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     print(f"DEBUG: HIT analyze_channel with ID: {channel_id}")
     try:
         # 1. Fetch Channel Info
@@ -28,48 +28,34 @@ def analyze_channel(channel_id: str, db: Session = Depends(get_db)):
             channel = Channel(id=channel_id)
             db.add(channel)
 
-    
         channel.title = channel_data["snippet"]["title"]
         channel.thumbnail_url = channel_data["snippet"]["thumbnails"]["default"]["url"]
-        
-        # 2. Fetch Recent Videos
-        videos_data = youtube_service.get_recent_videos(channel_id)
-        
-        # 3. Fetch & Store Recent Videos (Metadata Only)
-        # We do NOT analyze comments here. That happens on-demand when user clicks a video.
-        for v_data in videos_data:
-            vid_id = v_data["id"] 
-            video = db.query(Video).filter(Video.id == vid_id).first()
-            if not video:
-                video = Video(id=vid_id, channel_id=channel_id)
-                db.add(video)
-            
-            video.title = v_data["snippet"]["title"]
-            video.published_at = datetime.datetime.fromisoformat(v_data["snippet"]["publishedAt"].replace('Z', '+00:00'))
-            video.thumbnail_url = v_data["snippet"]["thumbnails"]["medium"]["url"] if "medium" in v_data["snippet"]["thumbnails"] else ""
-            
-            # Update statistics if available
-            if "statistics" in v_data:
-                stats = v_data["statistics"]
-                video.view_count = int(stats.get("viewCount", 0)) 
-                video.like_count = int(stats.get("likeCount", 0))
-                video.comment_count = int(stats.get("commentCount", 0))
-            
-            # NOTE: We skip get_video_comments() and sentiment analysis here.
-            # This makes the channel load "instant".
-
-            db.commit()
-        # 4. Calculate Health Score
-        analytics = AnalyticsService(db)
-        channel.health_score = analytics.calculate_health_score(channel_id)
         db.commit()
+
+        # Trigger Deep Analysis in Background (Workflow Orchestration)
+        analytics = AnalyticsService(db)
+        background_tasks.add_task(analytics.process_channel_deep_analysis, channel_id)
         
-        return {"status": "analyzed", "channel_title": channel.title, "health_score": channel.health_score}
+        return {
+            "status": "analyzed", 
+            "id": channel_id,
+            "channel_id": channel_id,
+            "channel_title": channel.title, 
+            "health_score": channel.health_score, 
+            "message": "Deep analysis started in background."
+        }
 
     except Exception as e:
         print(f"CRITICAL ERROR in analyze_channel: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+
+@router.get("/channel/{channel_id}/insights")
+def get_channel_insights(channel_id: str, db: Session = Depends(get_db)):
+    """Fetch high-level aggregated insights for a channel."""
+    analytics = AnalyticsService(db)
+    insights = analytics.generate_detailed_channel_insights(channel_id)
+    return insights
 
 @router.get("/channel/{channel_id}")
 def get_channel(channel_id: str, db: Session = Depends(get_db)):
@@ -162,7 +148,6 @@ def _get_comparison_data(db: Session, video_id: str):
         "gemini": { "distribution": dist_gemini, "score": gemini_avg }
     }
 
-from fastapi import BackgroundTasks
 
 def process_video_background(video_id: str, db: Session):
     """Background task to fetch ALL comments and analyze them."""
@@ -265,127 +250,112 @@ def process_video_background(video_id: str, db: Session):
             video.analysis_status = "error"
             db.commit()
 
+from fastapi.responses import StreamingResponse
+import json
 
 @router.post("/video/{video_id}/analyze")
-def analyze_video(video_id: str, background_tasks: BackgroundTasks, analyze_all: bool = False, db: Session = Depends(get_db)):
+def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+
     """
-    On-Demand Analysis.
-    If analyze_all=True, runs in background to fetch ALL comments.
+    On-Demand Analysis with SSE for real-time progress updates.
     """
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found locally.")
 
-    try:
-        if analyze_all:
-            # Trigger Background Task
-            # Check if column exists dynamically or assume it does? 
-            # If we get an error here, it's the schema.
-            video.analysis_status = "pending"
-            db.commit()
-            background_tasks.add_task(process_video_background, video_id, db)
-            return {"status": "queued", "message": "Deep analysis started in background."}
-        
-        # Standard Quick Analysis (Top 10)
-        print(f"DEBUG: Quick analysis for video {video_id}...")
+    def analysis_stream():
+        import time
+        # Standard constraints
+        MAX_GEMINI_CALLS = 10
+        COMMENTS_PER_BATCH = 5
+        THROTTLE_DELAY = 4.5
+
         try:
-            # LIMIT TO 5 COMMENTS to avoid Gemini Free Tier 429 Errors (Rate Limit)
-            comments_data = youtube_service.get_video_comments(video_id, max_results=5)
-        except Exception as e:
-            print(f"ERROR: Failed to fetch value comments: {e}")
-            comments_data = [] 
-        
-        # Process synchronously
-        count_processed = 0
-        for c_data in comments_data:
-            try:
-                snippet = c_data["snippet"]["topLevelComment"]["snippet"]
-                cid = c_data["id"]
-                comment = db.query(Comment).filter(Comment.id == cid).first()
-                if not comment:
-                    comment = Comment(id=cid, video_id=video_id)
-                    db.add(comment)
-                comment.text = snippet["textDisplay"]
-                comment.author = snippet["authorDisplayName"]
-                comment.like_count = snippet["likeCount"]
-                comment.published_at = datetime.datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
-                analysis = sentiment_service.analyze_comment(comment.text)
-                
-                if "vader" in analysis:
-                    comment.vader_sentiment = analysis["vader"]["sentiment"]
-                    comment.vader_score = analysis["vader"]["score"]
-                if "gemini" in analysis and analysis["gemini"]["available"]:
-                    comment.gemini_sentiment = analysis["gemini"]["sentiment"]
-                    comment.gemini_score = analysis["gemini"]["score"]
-                    
-                final_s = analysis["final_sentiment"]
-                if final_s == "positive": comment.sentiment = SentimentType.POSITIVE
-                elif final_s == "negative": comment.sentiment = SentimentType.NEGATIVE
-                else: comment.sentiment = SentimentType.NEUTRAL
-                
-                count_processed += 1
-            except: continue
-            
-        db.commit()
-        
-        # Recalculate and update the video's aggregate score using granular VADER scores
-        total_score = 0.0
-        total_weight = 0.0
-        final_comments = db.query(Comment).filter(Comment.video_id == video_id).all()
-        for c in final_comments:
-            # Use the granular vader_score instead of discrete +1/0/-1
-            val = c.vader_score if c.vader_score is not None else 0.0
-            
-            # Engagement weighting
-            w = 1.0 + c.like_count
-            total_score += val * w
-            total_weight += w
-            
-        if total_weight > 0:
-            video.sentiment_score = total_score / total_weight
-        
-        video.analysis_status = "completed"
-        db.commit()
+            # 1. Fetch comments
+            comments_data = youtube_service.get_video_comments(video_id, max_results=MAX_GEMINI_CALLS * COMMENTS_PER_BATCH)
+            if not comments_data:
+                yield f"data: {json.dumps({'status': 'completed', 'message': 'No comments found'})}\n\n"
+                return
 
-        # Update Channel Health Score immediately so HealthGauge updates
-        analytics = AnalyticsService(db)
-        channel = db.query(Channel).filter(Channel.id == video.channel_id).first()
-        if channel:
-            channel.health_score = analytics.calculate_health_score(channel.id)
+            # Yield Initial State
+            total_comments = len(comments_data)
+            yield f"data: {json.dumps({'status': 'processing', 'progress': 0, 'total': total_comments})}\n\n"
+
+            processed_count = 0
+            
+            # 2. Process Batches
+            for i in range(0, total_comments, COMMENTS_PER_BATCH):
+                batch_data = comments_data[i:i + COMMENTS_PER_BATCH]
+                comments_to_analyze = []
+                
+                for c_data in batch_data:
+                    snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                    cid = c_data["id"]
+                    comment = db.query(Comment).filter(Comment.id == cid).first()
+                    if not comment:
+                        comment = Comment(id=cid, video_id=video_id)
+                        db.add(comment)
+                    comment.text = snippet["textDisplay"]
+                    comment.author = snippet["authorDisplayName"]
+                    comment.like_count = snippet["likeCount"]
+                    comment.published_at = datetime.datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
+                    comments_to_analyze.append({"id": cid, "text": comment.text})
+
+                # Gemini Call
+                batch_results = sentiment_service.analyze_comment_batch(comments_to_analyze, video_id, f"b_{i}")
+
+                for res in batch_results.get("results", []):
+                    c = db.query(Comment).filter(Comment.id == res["comment_id"]).first()
+                    if c:
+                        c.sentiment = SentimentType(res["sentiment"])
+                        c.vader_score = res["score"]
+                        c.emoji_detected = 1 if res.get("emoji", False) else 0
+
+                processed_count += len(batch_data)
+                db.commit()
+
+                # Yield Progress
+                yield f"data: {json.dumps({'status': 'processing', 'progress': processed_count, 'total': total_comments})}\n\n"
+
+                if i + COMMENTS_PER_BATCH < total_comments:
+                    time.sleep(THROTTLE_DELAY)
+
+            # 3. Finalize
+            analytics = AnalyticsService(db)
+            final_comments = db.query(Comment).filter(Comment.video_id == video_id).all()
+            total_score = 0.0
+            total_weight = 0.0
+            for c in final_comments:
+                val = c.vader_score if c.vader_score is not None else 0.0
+                w = 1.0 + c.like_count
+                total_score += val * w
+                total_weight += w
+            
+            if total_weight > 0:
+                video.sentiment_score = total_score / total_weight
+            
+            video.analysis_status = "completed"
             db.commit()
 
-        # Return standard response with explicit dict to avoid serialization issues
-        dist_main = analytics.calculate_video_sentiment_distribution(video_id)
-        comparison_data = _get_comparison_data(db, video_id)
-        insights = analytics.generate_video_insights(video_id)
-        analyzed_count = db.query(Comment).filter(Comment.video_id == video_id).count()
+            channel = db.query(Channel).filter(Channel.id == video.channel_id).first()
+            if channel:
+                channel.health_score = analytics.calculate_health_score(channel.id)
+                db.commit()
 
-        return {
-            "status": "analyzed",
-            "video": {
-                "id": video.id,
-                "title": video.title,
-                "thumbnail_url": video.thumbnail_url,
-                "sentiment_score": video.sentiment_score,
-                "analysis_status": video.analysis_status,
-                "view_count": video.view_count,
-                "like_count": video.like_count,
-                "published_at": video.published_at.isoformat() if video.published_at else None
-            },
-            "sentiment_distribution": dist_main,
-            "comparison": comparison_data,
-            "insights": insights,
-            "analyzed_comment_count": analyzed_count,
-            "health_score": channel.health_score if channel else 0.0
-        }
+            final_data = {
+                "status": "completed",
+                "video": {"id": video.id, "sentiment_score": video.sentiment_score},
+                "health_score": channel.health_score if channel else 0.0,
+                "insights": analytics.generate_video_insights(video_id),
+                "distribution": analytics.calculate_video_sentiment_distribution(video_id)
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
 
-    except Exception as e:
-        error_msg = f"CRITICAL ERROR in analyze_video: {e}\n{traceback.format_exc()}"
-        print(error_msg)
-        with open("backend_errors.txt", "a") as f:
-            f.write(f"\n--- {datetime.datetime.now()} ---\n")
-            f.write(error_msg)
-        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+        except Exception as e:
+            print(f"SSE Error: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(analysis_stream(), media_type="text/event-stream")
 
 # --- NEW FUNCTIONS FOR SIDEBAR ---
 

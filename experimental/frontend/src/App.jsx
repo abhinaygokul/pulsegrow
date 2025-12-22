@@ -3,6 +3,7 @@ import { DashboardLayout } from './components/DashboardLayout';
 import { ChannelSearch } from './components/ChannelSearch';
 import { VideoGrid } from './components/VideoGrid';
 import { HealthGauge } from './components/HealthGauge';
+import { ChannelInsights } from './components/ChannelInsights';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import './App.css';
@@ -10,6 +11,7 @@ import './App.css';
 function App() {
   const [activeChannel, setActiveChannel] = useState(null);
   const [videos, setVideos] = useState([]);
+  const [channelInsights, setChannelInsights] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -19,6 +21,7 @@ function App() {
     setError(null);
     setActiveChannel(null); // Clear previous
     setVideos([]);
+    setChannelInsights(null);
 
     // Determine if query is ID or Handle
     let endpoint = `http://localhost:8000/api/channel/${query}/analyze`;
@@ -42,6 +45,13 @@ function App() {
         setVideos(vData);
       }
 
+      // Fetch Global Channel Insights
+      const insightsRes = await fetch(`http://localhost:8000/api/channel/${query}/insights`);
+      if (insightsRes.ok) {
+        const iData = await insightsRes.json();
+        setChannelInsights(iData);
+      }
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -53,40 +63,74 @@ function App() {
     // Optimistic Update: Set status to processing
     setVideos(prev => prev.map(v =>
       v.id === videoId
-        ? { ...v, analysis_status: 'processing' }
+        ? { ...v, analysis_status: 'processing', progress: 0, total: 0 }
         : v
     ));
 
     try {
-      const res = await fetch(`http://localhost:8000/api/video/${videoId}/analyze`, {
+      const response = await fetch(`http://localhost:8000/api/video/${videoId}/analyze`, {
         method: 'POST'
       });
 
-      if (!res.ok) throw new Error("Analysis Failed");
+      if (!response.ok) throw new Error("Analysis Failed");
 
-      const data = await res.json();
-      // Update the specific video with the fresh data (sentiment score, etc) AND insights
-      setVideos(prev => prev.map(v =>
-        v.id === videoId
-          ? { ...data.video, insights: data.insights, distribution: data.sentiment_distribution }
-          : v
-      ));
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      // Update Global Health Gauge
-      if (data.health_score !== undefined) {
-        setActiveChannel(prev => ({
-          ...prev,
-          health_score: data.health_score
-        }));
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.status === 'processing') {
+                setVideos(prev => prev.map(v =>
+                  v.id === videoId
+                    ? { ...v, progress: data.progress, total: data.total }
+                    : v
+                ));
+              } else if (data.status === 'completed') {
+                setVideos(prev => prev.map(v =>
+                  v.id === videoId
+                    ? { ...v, ...data.video, analysis_status: 'completed', insights: data.insights, distribution: data.distribution }
+                    : v
+                ));
+
+                // Update Health Gauge
+                if (data.health_score !== undefined) {
+                  setActiveChannel(prev => ({ ...prev, health_score: data.health_score }));
+                }
+
+                // Refresh Channel Insights
+                if (activeChannel?.id || activeChannel?.channel_id) {
+                  const cId = activeChannel.id || activeChannel.channel_id;
+                  const cInsightsRes = await fetch(`http://localhost:8000/api/channel/${cId}/insights`);
+                  if (cInsightsRes.ok) {
+                    const cIData = await cInsightsRes.json();
+                    setChannelInsights(cIData);
+                  }
+                }
+              }
+            } catch (jsonErr) {
+              console.warn("Failed to parse SSE chunk", jsonErr);
+            }
+          }
+        }
       }
-
     } catch (e) {
-      console.error(e);
+      console.error("Analysis Error:", e);
       setVideos(prev => prev.map(v =>
         v.id === videoId ? { ...v, analysis_status: 'error' } : v
       ));
     }
-  }, []);
+  }, [activeChannel]);
+
 
   const handleSelectChannelFromReports = (channelId) => {
     setActiveTab('dashboard');
@@ -122,6 +166,8 @@ function App() {
                 </div>
               </div>
             )}
+
+            {channelInsights && <ChannelInsights insights={channelInsights} />}
 
             {activeChannel && <h3 className="section-title">Latest Videos</h3>}
             <VideoGrid videos={videos} onVideoClick={handleVideoClick} />

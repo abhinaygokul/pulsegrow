@@ -44,8 +44,13 @@ export function VideoCard({ video, onAnalyze }) {
                             onClick={() => onAnalyze(video.id)}
                             disabled={isProcessing}
                         >
-                            {isProcessing ? 'Analyzing...' : 'Analyze Sentiment'}
+                            {isProcessing
+                                ? (video.total > 0
+                                    ? `Analyzing (${video.progress} / ${video.total})...`
+                                    : 'Initializing...')
+                                : 'Analyze Sentiment'}
                         </button>
+
                     ) : (
                         <div className="analysis-layout">
                             {/* Larger Pie Chart Section */}

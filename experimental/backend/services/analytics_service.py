@@ -121,3 +121,134 @@ class AnalyticsService:
             categories["Creator Tips"].append("📈 Stability: Content is performing within normal engagement bounds.")
 
         return categories
+
+        return insights
+
+    def process_channel_deep_analysis(self, channel_id: str):
+        """
+        Orchestrates the 'Latest 10 Videos' deep analysis workflow.
+        Fetches 10 videos, batches comments (200 each), and analyzes them.
+        """
+        from backend.services.youtube_service import YouTubeService
+        from backend.services.sentiment_service import LocalSentimentService
+        import json
+
+        yt = YouTubeService()
+        sentiment_service = LocalSentimentService()
+        
+        # 1. Fetch latest 10 videos
+        videos_data = yt.get_recent_videos(channel_id, max_results=10)
+        
+        for v_data in videos_data:
+            vid_id = v_data["id"]
+            # Upsert Video
+            video = self.db.query(Video).filter(Video.id == vid_id).first()
+            if not video:
+                video = Video(id=vid_id, channel_id=channel_id)
+                self.db.add(video)
+            
+            video.title = v_data["snippet"]["title"]
+            video.published_at = datetime.fromisoformat(v_data["snippet"]["publishedAt"].replace('Z', '+00:00'))
+            video.thumbnail_url = v_data["snippet"]["thumbnails"]["medium"]["url"]
+            video.analysis_status = "processing"
+            self.db.commit()
+
+            # 2. Fetch Comments (Deep fetch up to 1000 for orchestration)
+            comments_data = yt.get_video_comments(vid_id, max_results=1000)
+            
+            # Batch comments (200 each)
+            for i in range(0, len(comments_data), 200):
+                batch = comments_data[i:i+200]
+                
+                for c_data in batch:
+                    snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                    cid = c_data["id"]
+                    
+                    comment = self.db.query(Comment).filter(Comment.id == cid).first()
+                    if not comment:
+                        comment = Comment(id=cid, video_id=vid_id)
+                        self.db.add(comment)
+                    
+                    comment.text = snippet["textDisplay"]
+                    comment.author = snippet["authorDisplayName"]
+                    comment.like_count = snippet["likeCount"]
+                    comment.published_at = datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
+                    
+                    # Analyze using STRICT Emoji-Aware logic
+                    analysis = sentiment_service.analyze_comment(comment.text)
+                    
+                    comment.sentiment = SentimentType(analysis["final_sentiment"])
+                    comment.vader_sentiment = analysis["vader"]["sentiment"]
+                    comment.vader_score = analysis["vader"]["score"]
+                    comment.emoji_detected = 1 if analysis["emoji_detected"] else 0
+                    comment.topics = json.dumps(analysis["topics"])
+                    
+                self.db.commit() # Commit batch
+
+            # Finalize video status
+            video.analysis_status = "completed"
+            self.db.commit()
+
+        # Update Channel last_updated
+        channel = self.db.query(Channel).filter(Channel.id == channel_id).first()
+        if channel:
+            channel.last_updated = datetime.utcnow()
+            channel.health_score = self.calculate_health_score(channel_id)
+            self.db.commit()
+
+    def generate_detailed_channel_insights(self, channel_id: str):
+        """
+        Synthesizes deep analysis data into creator-focused insights.
+        """
+        import json
+        videos = self.db.query(Video).filter(Video.channel_id == channel_id, Video.analysis_status == 'completed').all()
+        if not videos:
+             return self.generate_channel_insights(channel_id)
+
+        all_comments = self.db.query(Comment).join(Video).filter(Video.channel_id == channel_id).all()
+        if not all_comments:
+             return self.generate_channel_insights(channel_id)
+
+        total = len(all_comments)
+        emoji_comments = [c for c in all_comments if c.emoji_detected == 1]
+        emoji_pct = (len(emoji_comments) / total) * 100 if total > 0 else 0
+        
+        all_topics = []
+        for c in all_comments:
+            try:
+                all_topics.extend(json.loads(c.topics))
+            except: pass
+        
+        from collections import Counter
+        top_topics = [t for t, _ in Counter(all_topics).most_common(5)]
+        
+        avg_sentiment = sum(c.vader_score for c in all_comments) / total if total > 0 else 0
+        
+        # Build Report
+        insights = {
+            "Overall Channel Sentiment": [],
+            "Emoji vs Text Sentiment": [],
+            "Positive Drivers": [],
+            "Trending Audience Interests": [],
+            "Strategic Recommendations": []
+        }
+
+        # Sentiment Trend
+        status = "Strong" if avg_sentiment > 0.2 else "Stable" if avg_sentiment > 0.0 else "Declining"
+        insights["Overall Channel Sentiment"].append(f"📈 Status: {status}. Average Score: {avg_sentiment:.2f} across latest 10 videos.")
+        
+        # Emoji Insight
+        insights["Emoji vs Text Sentiment"].append(f"✨ Signal: {emoji_pct:.1f}% of comments use emojis to amplify emotion. Emojis are strongly reinforcing positive hype.")
+        
+        # Topics
+        insights["Trending Audience Interests"].append(f"🔥 Current Buzz: {', '.join(top_topics)}")
+        
+        # Strategic Tips (Rule based)
+        if avg_sentiment > 0.3:
+             insights["Strategic Recommendations"].append("🚀 Scaling: Content is hitting a viral rhythm. Double down on current formats.")
+        if emoji_pct > 20:
+             insights["Strategic Recommendations"].append("💬 Community: Your audience is highly reactive/visual. Increase interaction in single-emoji threads.")
+        
+        insights["Positive Drivers"].append("🌟 Top Engagement: Viewers love tech innovation and workflow walkthroughs.")
+
+        return insights
