@@ -153,8 +153,8 @@ class AnalyticsService:
             video.analysis_status = "processing"
             self.db.commit()
 
-            # 2. Fetch Comments (Deep fetch up to 1000 for orchestration)
-            comments_data = yt.get_video_comments(vid_id, max_results=1000)
+            # 2. Fetch Comments (Fetch ALL available comments)
+            comments_data = yt.get_video_comments(vid_id, max_results=None)
             
             # Batch comments (200 each)
             for i in range(0, len(comments_data), 200):

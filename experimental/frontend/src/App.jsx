@@ -98,7 +98,14 @@ function App() {
               } else if (data.status === 'completed') {
                 setVideos(prev => prev.map(v =>
                   v.id === videoId
-                    ? { ...v, ...data.video, analysis_status: 'completed', insights: data.insights, distribution: data.distribution }
+                    ? {
+                      ...v,
+                      ...data.video,
+                      analysis_status: 'completed',
+                      insights: data.insights,
+                      distribution: data.distribution,
+                      top_50_analysis: data.top_50_analysis
+                    }
                     : v
                 ));
 
@@ -167,7 +174,7 @@ function App() {
               </div>
             )}
 
-            {channelInsights && <ChannelInsights insights={channelInsights} />}
+            {channelInsights && <ChannelInsights insights={channelInsights} videos={videos} />}
 
             {activeChannel && <h3 className="section-title">Latest Videos</h3>}
             <VideoGrid videos={videos} onVideoClick={handleVideoClick} />

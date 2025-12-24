@@ -144,13 +144,37 @@ class YouTubeService:
         try:
             all_comments = []
             next_page_token = None
-            total_limit = 300 # Safety limit to prevent quota exhaustion
             
-            while len(all_comments) < total_limit and len(all_comments) < max_results:
+            # Use configurable limit or default to None (Unlimited)
+            env_max = os.getenv("MAX_COMMENTS_PER_VIDEO")
+            
+            # Determine effective limit
+            # Priority: 1. Function Argument (if set), 2. Env Var, 3. Unlimited
+            effective_limit = max_results
+            if effective_limit is None and env_max:
+                try:
+                    effective_limit = int(env_max)
+                except ValueError:
+                    pass
+            
+            while True:
+                # Check limit
+                if effective_limit and len(all_comments) >= effective_limit:
+                    break
+
+                # Calculate fetch size for this batch
+                fetch_size = 100
+                if effective_limit:
+                    remaining = effective_limit - len(all_comments)
+                    fetch_size = min(100, remaining)
+                
+                if fetch_size <= 0:
+                    break
+
                 request = self.youtube.commentThreads().list(
                     part="snippet",
                     videoId=video_id,
-                    maxResults=min(100, max_results - len(all_comments)),
+                    maxResults=fetch_size,
                     textFormat="plainText",
                     pageToken=next_page_token
                 )

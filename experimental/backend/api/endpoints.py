@@ -87,6 +87,19 @@ def get_channel_videos(channel_id: str, db: Session = Depends(get_db)):
             v_dict["distribution"] = analytics.calculate_video_sentiment_distribution(v.id)
             v_dict["insights"] = analytics.generate_video_insights(v.id)
             
+            # Generate Top 50 Insights
+            comments = db.query(Comment).filter(Comment.video_id == v.id).all()
+            comments_list = [
+                {
+                    "id": c.id,
+                    "text": c.text,
+                    "author": c.author,
+                    "like_count": c.like_count
+                }
+                for c in comments
+            ]
+            v_dict["top_50_analysis"] = sentiment_service.generate_top_50_insights(comments_list)
+            
         results.append(v_dict)
         
     return results
@@ -109,12 +122,28 @@ def get_video_details(video_id: str, db: Session = Depends(get_db)):
     # Calculate analyzed count locally
     analyzed_count = db.query(Comment).filter(Comment.video_id == video_id).count()
 
+    # Generate Top 50 Insights if video is analyzed
+    top_50_analysis = None
+    if video.analysis_status == "completed":
+        comments = db.query(Comment).filter(Comment.video_id == video_id).all()
+        comments_list = [
+            {
+                "id": c.id,
+                "text": c.text,
+                "author": c.author,
+                "like_count": c.like_count
+            }
+            for c in comments
+        ]
+        top_50_analysis = sentiment_service.generate_top_50_insights(comments_list)
+
     return {
         "video": video,
         "sentiment_distribution": distribution,
         "comparison": comparison_data,
         "insights": insights,
-        "analyzed_comment_count": analyzed_count
+        "analyzed_comment_count": analyzed_count,
+        "top_50_analysis": top_50_analysis
     }
 
 def _get_comparison_data(db: Session, video_id: str):
@@ -160,8 +189,8 @@ def process_video_background(video_id: str, db: Session):
             video.analysis_status = "processing"
             db.commit()
             
-        # Fetch ALL comments (limit 500 for safety)
-        comments_data = youtube_service.get_video_comments(video_id, max_results=500)
+        # Fetch ALL available comments
+        comments_data = youtube_service.get_video_comments(video_id, max_results=None)
         
         count_processed = 0
         for c_data in comments_data:
@@ -271,8 +300,8 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
         THROTTLE_DELAY = 4.5
 
         try:
-            # 1. Fetch comments
-            comments_data = youtube_service.get_video_comments(video_id, max_results=MAX_GEMINI_CALLS * COMMENTS_PER_BATCH)
+            # 1. Fetch comments (Fetch ALL available)
+            comments_data = youtube_service.get_video_comments(video_id, max_results=None)
             if not comments_data:
                 yield f"data: {json.dumps({'status': 'completed', 'message': 'No comments found'})}\n\n"
                 return
@@ -325,11 +354,22 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
             final_comments = db.query(Comment).filter(Comment.video_id == video_id).all()
             total_score = 0.0
             total_weight = 0.0
+            
+            # Prepare list for Top 50 Analysis
+            all_comments_list = []
+            
             for c in final_comments:
                 val = c.vader_score if c.vader_score is not None else 0.0
                 w = 1.0 + c.like_count
                 total_score += val * w
                 total_weight += w
+                
+                all_comments_list.append({
+                    "id": c.id,
+                    "text": c.text,
+                    "author": c.author,
+                    "like_count": c.like_count
+                })
             
             if total_weight > 0:
                 video.sentiment_score = total_score / total_weight
@@ -342,12 +382,17 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
                 channel.health_score = analytics.calculate_health_score(channel.id)
                 db.commit()
 
+            # 4. Generate Top 50 Insights (Gemini)
+            yield f"data: {json.dumps({'status': 'processing', 'message': 'Generative AI is analyzing top 50 comments...'})}\n\n"
+            top_50_insights = sentiment_service.generate_top_50_insights(all_comments_list)
+
             final_data = {
                 "status": "completed",
                 "video": {"id": video.id, "sentiment_score": video.sentiment_score},
                 "health_score": channel.health_score if channel else 0.0,
                 "insights": analytics.generate_video_insights(video_id),
-                "distribution": analytics.calculate_video_sentiment_distribution(video_id)
+                "distribution": analytics.calculate_video_sentiment_distribution(video_id),
+                "top_50_analysis": top_50_insights
             }
             yield f"data: {json.dumps(final_data)}\n\n"
 

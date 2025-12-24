@@ -1,4 +1,5 @@
 import React from 'react';
+import { GeminiInsights } from './GeminiInsights';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import './VideoCard.css';
 
@@ -131,6 +132,13 @@ export function VideoCard({ video, onAnalyze }) {
                                     </div>
                                 )}
                             </div>
+
+                            {/* Gemini Deep Insights */}
+                            {video.top_50_analysis && (
+                                <div className="gemini-insights-wrapper">
+                                    <GeminiInsights data={video.top_50_analysis} />
+                                </div>
+                            )}
 
                             <button
                                 className="reanalyze-btn-minimal"

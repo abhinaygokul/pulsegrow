@@ -17,8 +17,8 @@ def fetch_data():
         print(f"Fetching comments for video: {vid_title} ({vid_id})")
         
         # Fetching comments - set a reasonable limit for this orchestration
-        # "All comments" could be 50k+, we'll try to get ~1000 for depth
-        comments_data = yt.get_video_comments(vid_id, max_results=1000)
+        # "All comments" could be 50k+, we'll try to get ALL now to verify the fix
+        comments_data = yt.get_video_comments(vid_id, max_results=None)
         
         video_comments = []
         for c in comments_data:

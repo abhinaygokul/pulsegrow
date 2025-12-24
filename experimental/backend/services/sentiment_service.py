@@ -222,3 +222,72 @@ class LocalSentimentService:
 
         return result_batch
 
+
+    def generate_top_50_insights(self, comments_list: list):
+        """
+        Analyzes the Top 50 Most Liked Comments to generate high-level AI insights.
+        """
+        import json
+        import re
+
+        # 1. Filter & Sort
+        # Ensure we have valid text and sort by likes descending
+        valid_comments = [c for c in comments_list if c.get("text") and len(c.get("text").strip()) > 0]
+        sorted_comments = sorted(valid_comments, key=lambda x: x.get("like_count", 0), reverse=True)
+        top_50 = sorted_comments[:50]
+
+        if not top_50:
+             return {"error": "No comments available for analysis."}
+
+        # 2. Prepare Payload
+        # We send a simplified list to save tokens
+        payload = []
+        for c in top_50:
+            payload.append({
+                "author": c.get("author", "User"),
+                "likes": c.get("like_count", 0),
+                "text": c.get("text")[:500] # Truncate very long comments
+            })
+
+        # 3. Construct Prompt
+        prompt = (
+            "You are an expert YouTube Analytics AI. Analyze the following TOP 50 MOST LIKED comments from a video. "
+            "These comments represent the most engaging opinions.\n\n"
+            "Your Task:\n"
+            "1. Determine the overall sentiment distribution (approximate percentages of Positive, Neutral, Negative).\n"
+            "2. Identify 3-5 Key Recurring Themes/Opinions.\n"
+            "3. Summarize what viewers LIKE most (Praise).\n"
+            "4. Summarize what viewers CRITICIZE or want improved (Requests/Complaints).\n"
+            "5. Provide 3 specific, actionable insights for the Creator based on this feedback.\n"
+            "6. Select 3 representative 'Notable Quotes' that capture the community vibe.\n\n"
+            "Output Format (JSON ONLY, No Markdown):\n"
+            "{\n"
+            "  \"sentiment_summary\": \"Brief 1-sentence summary of the vibe\",\n"
+            "  \"sentiment_breakdown\": {\"positive\": 0, \"neutral\": 0, \"negative\": 0},\n"
+            "  \"key_themes\": [\"Theme 1\", \"Theme 2\", \"Theme 3\"],\n"
+            "  \"praise_summary\": \"...\",\n"
+            "  \"criticism_summary\": \"...\",\n"
+            "  \"ai_insights\": [\"Insight 1\", \"Insight 2\", \"Insight 3\"],\n"
+            "  \"notable_quotes\": [\n"
+            "    {\"text\": \"...\", \"author\": \"...\", \"likes\": 0}\n"
+            "  ]\n"
+            "}\n\n"
+            "Comments Data:\n"
+        )
+        prompt += json.dumps(payload)
+
+        # 4. Call Gemini
+        if not self.gemini_model:
+             return {"error": "Gemini API key not configured."}
+        
+        try:
+            response = self.gemini_model.generate_content(prompt)
+            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                return {"error": "Failed to parse Gemini response"}
+        except Exception as e:
+            print(f"Top 50 Analysis Error: {e}")
+            return {"error": str(e)}
+
