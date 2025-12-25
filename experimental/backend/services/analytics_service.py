@@ -122,23 +122,96 @@ class AnalyticsService:
 
         return categories
 
-    def process_channel_deep_analysis(self, channel_id: str):
+    def _analyze_video_task(self, channel_id: str, vid_id: str):
         """
-        Orchestrates the 'Latest 10 Videos' deep analysis workflow.
-        Fetches 10 videos, batches comments (200 each), and analyzes them.
+        Helper task for parallel execution.
+        Fetches max 50 comments (for speed) and performs sentiment analysis.
+        Returns a dictionary with video_id and processed comment data.
         """
         from backend.services.youtube_service import YouTubeService
         from backend.services.sentiment_service import LocalSentimentService
         import json
-
+        
+        # Instantiate services locally for thread safety
         yt = YouTubeService()
         sentiment_service = LocalSentimentService()
+        
+        # Limit to 50 comments for "Top 50 Insights" feature - Massive Speedup
+        # Use order='relevance' to get the "Most Liked" / Top comments first
+        comments_data = yt.get_video_comments(vid_id, max_results=50, order="relevance")
+        
+        # Prepare for Batch Analysis
+        processed_comments = []
+        
+        # Chunk into batches of 10
+        batch_size = 10
+        chunks = [comments_data[i:i + batch_size] for i in range(0, len(comments_data), batch_size)]
+        
+        for i, chunk in enumerate(chunks):
+            batch_id = f"{vid_id}_b{i}"
+            
+            # Prepare simple dict list for batch service
+            batch_input = []
+            for c_data in chunk:
+                snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                batch_input.append({
+                    "id": c_data["id"],
+                    "text": snippet["textDisplay"]
+                })
+            
+            try:
+                # Call Batched Analysis
+                batch_result = sentiment_service.analyze_comment_batch(batch_input, vid_id, batch_id)
+                results_map = {r["comment_id"]: r for r in batch_result["results"]}
+                
+                # Merge back with metadata
+                for c_data in chunk:
+                    snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                    cid = c_data["id"]
+                    
+                    # Default values if batch failed for specific item
+                    analysis = results_map.get(cid, {
+                        "sentiment": "neutral",
+                        "score": 0.0,
+                        "emoji": False
+                    })
+                    
+                    processed_comments.append({
+                        "id": cid,
+                        "text": snippet["textDisplay"],
+                        "author": snippet["authorDisplayName"],
+                        "likeCount": snippet["likeCount"],
+                        "publishedAt": snippet["publishedAt"],
+                        "sentiment": analysis["sentiment"],
+                        "vader_sentiment": analysis["sentiment"], # Fallback/Aligned
+                        "vader_score": analysis["score"],
+                        "emoji_detected": 1 if analysis["emoji"] else 0,
+                        "topics": json.dumps([]) # Topics not extracted in batch mode to save tokens
+                    })
+            except Exception as e:
+                print(f"Batch {batch_id} failed: {e}")
+                continue
+                
+        return {
+            "video_id": vid_id,
+            "comments": processed_comments
+        }
+
+    def prepare_analysis_metadata(self, channel_id: str):
+        """
+        Phase 1: Fetch metadata for latest 10 videos (Synchronous).
+        This guarantees videos exist in DB before API responds to frontend.
+        """
+        from backend.services.youtube_service import YouTubeService
+        yt = YouTubeService()
         
         # 1. Fetch latest 10 videos
         videos_data = yt.get_recent_videos(channel_id, max_results=10)
         
+        # Upsert Metadata
         for v_data in videos_data:
             vid_id = v_data["id"]
+            
             # Upsert Video
             video = self.db.query(Video).filter(Video.id == vid_id).first()
             if not video:
@@ -149,50 +222,107 @@ class AnalyticsService:
             video.published_at = datetime.fromisoformat(v_data["snippet"]["publishedAt"].replace('Z', '+00:00'))
             video.thumbnail_url = v_data["snippet"]["thumbnails"]["medium"]["url"]
             video.analysis_status = "processing"
-            self.db.commit()
+        
+        self.db.commit() # Videos visible in UI immediately
+        print("DEBUG: Phase 1 (Metadata) Complete - Videos Inserted")
 
-            # 2. Fetch Comments (Fetch ALL available comments)
-            comments_data = yt.get_video_comments(vid_id, max_results=None)
+    def run_background_analysis(self, channel_id: str):
+        """
+        Phase 2: Deep Analysis (Asynchronous / Background).
+        Uses a FRESH DB Session to avoid 'Session closed' errors in background threads.
+        """
+        from backend.services.youtube_service import YouTubeService
+        from backend.database import SessionLocal # Import for fresh session
+        import concurrent.futures
+        
+        print("DEBUG: Starting Phase 2 (Deep Analysis) in Background...")
+        
+        # Create a FRESH session for this background thread
+        db_session = SessionLocal()
+        
+        try:
+             # Re-instantiate self with local session if needed, or just use db_session directly
+             # Ideally we should keep 'self' stateless or bind to the new session.
+             # Easier here: Use db_session for all queries below.
             
-            # Batch comments (200 each)
-            for i in range(0, len(comments_data), 200):
-                batch = comments_data[i:i+200]
+            # 1. Get IDs to process
+            # We fetch from DB since Phase 1 just inserted them
+            videos = db_session.query(Video).filter(Video.channel_id == channel_id).order_by(Video.published_at.desc()).limit(10).all()
+            ids_to_process = [v.id for v in videos]
+            
+            # --- PHASE 2: Deep Analysis (Parallel) ---
+            print(f"Starting parallel analysis for {len(ids_to_process)} videos...")
+            
+            results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                # Submit tasks (using self._analyze_video_task which is static-ish logic)
+                future_to_vid = {
+                    executor.submit(self._analyze_video_task, channel_id, vid_id): vid_id 
+                    for vid_id in ids_to_process
+                }
                 
-                for c_data in batch:
-                    snippet = c_data["snippet"]["topLevelComment"]["snippet"]
-                    cid = c_data["id"]
-                    
-                    comment = self.db.query(Comment).filter(Comment.id == cid).first()
+                for future in concurrent.futures.as_completed(future_to_vid):
+                    vid_id = future_to_vid[future]
+                    try:
+                        data = future.result()
+                        results.append(data)
+                    except Exception as e:
+                        print(f"Video {vid_id} generated an exception: {e}")
+                        video = db_session.query(Video).filter(Video.id == vid_id).first()
+                        if video:
+                            video.analysis_status = "error"
+                            db_session.commit()
+
+            # Write results to DB (Sequential for safety) using background session
+            for res in results:
+                vid_id = res['video_id']
+                comments_list = res['comments']
+                
+                for c_data in comments_list:
+                    comment = db_session.query(Comment).filter(Comment.id == c_data['id']).first()
                     if not comment:
-                        comment = Comment(id=cid, video_id=vid_id)
-                        self.db.add(comment)
+                        comment = Comment(id=c_data['id'], video_id=vid_id)
+                        db_session.add(comment)
                     
-                    comment.text = snippet["textDisplay"]
-                    comment.author = snippet["authorDisplayName"]
-                    comment.like_count = snippet["likeCount"]
-                    comment.published_at = datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
-                    
-                    # Analyze using STRICT Emoji-Aware logic
-                    analysis = sentiment_service.analyze_comment(comment.text)
-                    
-                    comment.sentiment = SentimentType(analysis["final_sentiment"])
-                    comment.vader_sentiment = analysis["vader"]["sentiment"]
-                    comment.vader_score = analysis["vader"]["score"]
-                    comment.emoji_detected = 1 if analysis["emoji_detected"] else 0
-                    comment.topics = json.dumps(analysis["topics"])
-                    
-                self.db.commit() # Commit batch
+                    comment.text = c_data['text']
+                    comment.author = c_data['author']
+                    comment.like_count = c_data['likeCount']
+                    comment.published_at = datetime.fromisoformat(c_data['publishedAt'].replace('Z', '+00:00'))
+                    comment.sentiment = SentimentType(c_data['sentiment'])
+                    comment.vader_sentiment = c_data['vader_sentiment']
+                    comment.vader_score = c_data['vader_score']
+                    comment.emoji_detected = c_data['emoji_detected']
+                    comment.topics = c_data['topics']
+                
+                db_session.commit()
+                
+                video = db_session.query(Video).filter(Video.id == vid_id).first()
+                if video:
+                    video.analysis_status = "completed"
+                    db_session.commit()
 
-            # Finalize video status
-            video.analysis_status = "completed"
-            self.db.commit()
+            # Update Channel
+            channel = db_session.query(Channel).filter(Channel.id == channel_id).first()
+            if channel:
+                channel.last_updated = datetime.utcnow()
+                # Recalculate health using the background session
+                # We need to temporarily swap self.db to use helper methods, or just reimplement
+                # A bit hacky but works for this specific helper which uses self.db
+                original_db = self.db
+                self.db = db_session 
+                channel.health_score = self.calculate_health_score(channel_id)
+                self.db = original_db # Restore (though this instance might be dead anyway)
+                
+                db_session.commit()
+                print("DEBUG: Phase 2 Complete.")
 
-        # Update Channel last_updated
-        channel = self.db.query(Channel).filter(Channel.id == channel_id).first()
-        if channel:
-            channel.last_updated = datetime.utcnow()
-            channel.health_score = self.calculate_health_score(channel_id)
-            self.db.commit()
+        except Exception as e:
+            print(f"CRITICAL BACKGROUND ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            db_session.close()
+            print("DEBUG: Background DB Session Closed.")
 
     def generate_channel_insights(self, channel_id: str):
         """

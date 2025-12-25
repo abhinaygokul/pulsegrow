@@ -35,7 +35,7 @@ export function VideoCard({ video, onAnalyze }) {
                             {isProcessing
                                 ? (video.total > 0
                                     ? `Analyzing (${video.progress} / ${video.total})...`
-                                    : 'Initializing...')
+                                    : 'Processing...')
                                 : 'Analyze Sentiment'}
                         </button>
 

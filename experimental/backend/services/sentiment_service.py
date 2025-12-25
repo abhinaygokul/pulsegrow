@@ -193,7 +193,14 @@ class LocalSentimentService:
                     
                     for c in comments_list:
                         if c["id"] in g_results:
-                            result_batch["results"].append(g_results[c["id"]])
+                            # SAFE GUARD: Ensure all keys exist, don't trust Gemini's JSON blindly
+                            g_res = g_results[c["id"]]
+                            result_batch["results"].append({
+                                "comment_id": c["id"],
+                                "sentiment": g_res.get("sentiment", "neutral"),
+                                "score": float(g_res.get("score", 0.0)),
+                                "emoji": g_res.get("emoji", False)
+                            })
                         else:
                             # Fallback for missing items in batch response
                             ana = self.analyze_comment(c["text"])

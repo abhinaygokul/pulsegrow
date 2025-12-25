@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { DashboardLayout } from './components/DashboardLayout';
 import { ChannelSearch } from './components/ChannelSearch';
 import { VideoGrid } from './components/VideoGrid';
@@ -58,6 +58,53 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  // Polling for background updates
+  useEffect(() => {
+    // Only poll if we have an active channel and videos in 'processing' state
+    const interval = setInterval(() => {
+      const hasProcessing = videos.some(v => v.analysis_status === 'processing');
+      const channelId = activeChannel?.id || activeChannel?.channel_id;
+
+      if (hasProcessing && channelId) {
+        // Silent refresh
+        fetch(`http://localhost:8000/api/channel/${channelId}/videos`)
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error('Failed to poll');
+          })
+          .then(vData => {
+            vData.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+            // Merge to preserve local progress state if any (though background tasks wont have it)
+            setVideos(prev => {
+              const newMap = new Map(vData.map(v => [v.id, v]));
+              return prev.map(p => {
+                const updated = newMap.get(p.id);
+                if (!updated) return p;
+
+                // If local has progress/total (from SSE) and updated is still processing, keep local
+                if (p.progress > 0 && updated.analysis_status === 'processing') {
+                  return { ...updated, progress: p.progress, total: p.total };
+                }
+                return updated;
+              });
+            });
+
+            // Also refresh insights if mostly done
+            const allDone = vData.every(v => v.analysis_status !== 'processing');
+            if (allDone) {
+              fetch(`http://localhost:8000/api/channel/${channelId}/insights`)
+                .then(r => r.json())
+                .then(iData => setChannelInsights(iData))
+                .catch(() => { });
+            }
+          })
+          .catch(console.error);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [videos, activeChannel]);
 
   const handleVideoClick = useCallback(async (videoId) => {
     // Optimistic Update: Set status to processing

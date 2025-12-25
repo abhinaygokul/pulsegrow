@@ -131,7 +131,7 @@ class YouTubeService:
         stats_response = stats_request.execute()
         return stats_response.get("items", [])
 
-    def get_video_comments(self, video_id: str, max_results: int = 100):
+    def get_video_comments(self, video_id: str, max_results: int = 100, order: str = "relevance"):
         if not self.youtube or video_id.startswith("demo_"):
              return [
                 {"id": "c1", "snippet": {"topLevelComment": {"snippet": {"textDisplay": "This is exactly what I needed! Finally proper analytics.", "authorDisplayName": "CreatorFan1", "likeCount": 120, "publishedAt": "2023-10-25T10:05:00Z"}}}},
@@ -176,7 +176,8 @@ class YouTubeService:
                     videoId=video_id,
                     maxResults=fetch_size,
                     textFormat="plainText",
-                    pageToken=next_page_token
+                    pageToken=next_page_token,
+                    order=order
                 )
                 response = request.execute()
                 items = response.get("items", [])

@@ -32,9 +32,14 @@ def analyze_channel(channel_id: str, background_tasks: BackgroundTasks, db: Sess
         channel.thumbnail_url = channel_data["snippet"]["thumbnails"]["default"]["url"]
         db.commit()
 
-        # Trigger Deep Analysis in Background (Workflow Orchestration)
+        # Trigger Deep Analysis in Two Phases
         analytics = AnalyticsService(db)
-        background_tasks.add_task(analytics.process_channel_deep_analysis, channel_id)
+        
+        # Phase 1: Sync (Blocking) - Ensures videos are in DB before we return
+        analytics.prepare_analysis_metadata(channel_id)
+        
+        # Phase 2: Async (Background) - Deep analysis with fresh session
+        background_tasks.add_task(analytics.run_background_analysis, channel_id)
         
         return {
             "status": "analyzed", 
