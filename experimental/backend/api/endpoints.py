@@ -296,8 +296,8 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
         import time
         # Standard constraints
         MAX_GEMINI_CALLS = 10
-        COMMENTS_PER_BATCH = 5
-        THROTTLE_DELAY = 4.5
+        COMMENTS_PER_BATCH = 30
+        THROTTLE_DELAY = 0.1
 
         try:
             # 1. Fetch comments (Fetch ALL available)
@@ -376,6 +376,7 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
             
             video.analysis_status = "completed"
             db.commit()
+            print(f"DEBUG: Calculated Video {video.id} Sentiment Score: {video.sentiment_score} (Total Weight: {total_weight})")
 
             channel = db.query(Channel).filter(Channel.id == video.channel_id).first()
             if channel:

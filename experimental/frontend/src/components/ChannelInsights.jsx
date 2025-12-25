@@ -9,25 +9,68 @@ export function ChannelInsights({ insights, videos }) {
     // Calculate Trend Data from Videos for the Chart
     const trendData = useMemo(() => {
         if (!videos || videos.length === 0) return [];
-        // Sort by date ascending for the line chart
+        // Sort by date ascending for the chart
         const sorted = [...videos].sort((a, b) => new Date(a.published_at) - new Date(b.published_at));
-        return sorted.map(v => ({
-            title: v.title,
-            score: v.score || 0,
-            date: new Date(v.published_at).toLocaleDateString()
-        }));
+
+        return sorted.map(v => {
+            let pos = 0, neu = 0, neg = 0;
+
+            if (v.distribution) {
+                // Backend provides fractional 0.0-1.0
+                pos = v.distribution.positive || 0;
+                neu = v.distribution.neutral || 0;
+                neg = v.distribution.negative || 0;
+            } else if (v.sentiment_score !== undefined && v.sentiment_score !== null) {
+                // Fallback 100% based on score threshold
+                const s = v.sentiment_score;
+                if (s >= 0.05) pos = 1.0;
+                else if (s <= -0.05) neg = 1.0;
+                else neu = 1.0;
+            }
+
+            return {
+                title: v.title,
+                date: new Date(v.published_at).toLocaleDateString(),
+                positive: (pos * 100).toFixed(1), // Convert to percentage for readable chart
+                neutral: (neu * 100).toFixed(1),
+                negative: (neg * 100).toFixed(1)
+            };
+        });
     }, [videos]);
 
-    // Calculate Distribution Data from Videos if not in insights
+    // Calculate Distribution Data - Mathematical Aggregation
     const distributionData = useMemo(() => {
         if (!videos || videos.length === 0) return { positive: 0, neutral: 0, negative: 0 };
-        let pos = 0, neu = 0, neg = 0;
+
+        let totalPos = 0, totalNeu = 0, totalNeg = 0;
+        let count = 0;
+
         videos.forEach(v => {
-            if (v.score >= 0.05) pos++;
-            else if (v.score <= -0.05) neg++;
-            else neu++;
+            // Use precise distribution if available (from backend analysis)
+            if (v.distribution) {
+                totalPos += (v.distribution.positive || 0);
+                totalNeu += (v.distribution.neutral || 0);
+                totalNeg += (v.distribution.negative || 0);
+                count++;
+            }
+            // Fallback: Estimate from score if detailed distribution is missing but analyzed
+            else if (v.sentiment_score !== undefined && v.sentiment_score !== null) {
+                const s = v.sentiment_score;
+                if (s >= 0.05) totalPos += 1;
+                else if (s <= -0.05) totalNeg += 1;
+                else totalNeu += 1;
+                count++;
+            }
         });
-        return { positive: pos, neutral: neu, negative: neg };
+
+        if (count === 0) return { positive: 0, neutral: 0, negative: 0 };
+
+        // Average them out
+        return {
+            positive: totalPos / count,
+            neutral: totalNeu / count,
+            negative: totalNeg / count
+        };
     }, [videos]);
 
 

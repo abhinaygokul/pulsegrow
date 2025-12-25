@@ -122,8 +122,6 @@ class AnalyticsService:
 
         return categories
 
-        return insights
-
     def process_channel_deep_analysis(self, channel_id: str):
         """
         Orchestrates the 'Latest 10 Videos' deep analysis workflow.
@@ -195,6 +193,19 @@ class AnalyticsService:
             channel.last_updated = datetime.utcnow()
             channel.health_score = self.calculate_health_score(channel_id)
             self.db.commit()
+
+    def generate_channel_insights(self, channel_id: str):
+        """
+        Fallback method for when deep analysis data is missing.
+        Returns empty/placeholder structure.
+        """
+        return {
+            "Overall Channel Sentiment": ["Analysis Pending..."],
+            "Emoji vs Text Sentiment": ["No sufficient data."],
+            "Positive Drivers": ["Waiting for analysis."],
+            "Trending Audience Interests": ["No data yet."],
+            "Strategic Recommendations": ["Run analysis to see insights."]
+        }
 
     def generate_detailed_channel_insights(self, channel_id: str):
         """

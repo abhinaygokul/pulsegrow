@@ -1,4 +1,4 @@
-import google.generativeai as genai
+from google import genai
 import os
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from transformers import pipeline
@@ -10,7 +10,8 @@ class LocalSentimentService:
         
         # 1. Initialize VADER (Fast, Rule-based, Good for social media slang)
         self.vader = SentimentIntensityAnalyzer()
-        self.gemini_model = None
+        self.gemini_client = None
+        self.model_name = "gemini-2.0-flash"
         
         # 🚀 CUSTOM: Add Tanglish/Hinglish/Indian Slang to VADER Lexicon
         # ... (Keeping existing lexicon updates) ...
@@ -44,12 +45,12 @@ class LocalSentimentService:
         print(f"VADER Initialized with {len(new_words)} custom Tanglish concepts.")
 
         # 2. Initialize Gemini (If API Key Available)
+        # 2. Initialize Gemini (If API Key Available)
         api_key = os.getenv("GEMINI_API_KEY")
         if api_key:
             try:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
-                print("Gemini 2.0 Flash Initialized for Sentiment Analysis.")
+                self.gemini_client = genai.Client(api_key=api_key)
+                print(f"Gemini Client Initialized with model: {self.model_name}")
             except Exception as e:
                 print(f"Failed to initialize Gemini: {e}")
 
@@ -89,7 +90,7 @@ class LocalSentimentService:
         result["vader"] = {"sentiment": v_sentiment, "score": vader_compound}
 
         # 3. Gemini (If available)
-        if self.gemini_model:
+        if self.gemini_client:
             try:
                 prompt = (
                     "Analyze sentiment for this comment independently. Interpret emojis as sentiment signals. "
@@ -99,7 +100,10 @@ class LocalSentimentService:
                     f"Format: {{\"sentiment\": \"label\", \"score\": 0.0, \"topics\": [\"topic1\"]}}\n\n"
                     f"Comment: \"{comment_text}\""
                 )
-                response = self.gemini_model.generate_content(prompt)
+                response = self.gemini_client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
                 try:
                     import json
                     g_data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
@@ -138,7 +142,7 @@ class LocalSentimentService:
             "results": []
         }
 
-        if not self.gemini_model:
+        if not self.gemini_client:
             # Fallback to VADER for all if Gemini is down
             for c in comments_list:
                 ana = self.analyze_comment(c["text"])
@@ -175,7 +179,10 @@ class LocalSentimentService:
         batch_prompt += json.dumps(comments_payload)
 
         try:
-            response = self.gemini_model.generate_content(batch_prompt)
+            response = self.gemini_client.models.generate_content(
+                model=self.model_name,
+                contents=batch_prompt
+            )
             try:
                 # Use regex to find the JSON block in case of conversational fluff
                 json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
@@ -277,11 +284,14 @@ class LocalSentimentService:
         prompt += json.dumps(payload)
 
         # 4. Call Gemini
-        if not self.gemini_model:
+        if not self.gemini_client:
              return {"error": "Gemini API key not configured."}
         
         try:
-            response = self.gemini_model.generate_content(prompt)
+            response = self.gemini_client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
             json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
