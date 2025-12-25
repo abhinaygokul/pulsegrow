@@ -147,12 +147,13 @@ class AnalyticsService:
         batch_size = 10
         chunks = [comments_data[i:i + batch_size] for i in range(0, len(comments_data), batch_size)]
         
-        for i, chunk in enumerate(chunks):
-            batch_id = f"{vid_id}_b{i}"
-            
-            # Prepare simple dict list for batch service
+        import concurrent.futures
+
+        # Helper function to process a single batch
+        def process_batch(batch_idx, chunk_data):
+            batch_id = f"{vid_id}_b{batch_idx}"
             batch_input = []
-            for c_data in chunk:
+            for c_data in chunk_data:
                 snippet = c_data["snippet"]["topLevelComment"]["snippet"]
                 batch_input.append({
                     "id": c_data["id"],
@@ -162,35 +163,46 @@ class AnalyticsService:
             try:
                 # Call Batched Analysis
                 batch_result = sentiment_service.analyze_comment_batch(batch_input, vid_id, batch_id)
-                results_map = {r["comment_id"]: r for r in batch_result["results"]}
-                
-                # Merge back with metadata
-                for c_data in chunk:
-                    snippet = c_data["snippet"]["topLevelComment"]["snippet"]
-                    cid = c_data["id"]
-                    
-                    # Default values if batch failed for specific item
-                    analysis = results_map.get(cid, {
-                        "sentiment": "neutral",
-                        "score": 0.0,
-                        "emoji": False
-                    })
-                    
-                    processed_comments.append({
-                        "id": cid,
-                        "text": snippet["textDisplay"],
-                        "author": snippet["authorDisplayName"],
-                        "likeCount": snippet["likeCount"],
-                        "publishedAt": snippet["publishedAt"],
-                        "sentiment": analysis["sentiment"],
-                        "vader_sentiment": analysis["sentiment"], # Fallback/Aligned
-                        "vader_score": analysis["score"],
-                        "emoji_detected": 1 if analysis["emoji"] else 0,
-                        "topics": json.dumps([]) # Topics not extracted in batch mode to save tokens
-                    })
+                return batch_result["results"]
             except Exception as e:
                 print(f"Batch {batch_id} failed: {e}")
-                continue
+                return []
+
+        # Run batches in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+             future_to_batch = {executor.submit(process_batch, i, chunk): chunk for i, chunk in enumerate(chunks)}
+             
+             for future in concurrent.futures.as_completed(future_to_batch):
+                 chunk = future_to_batch[future]
+                 try:
+                     results_list = future.result()
+                     results_map = {r["comment_id"]: r for r in results_list}
+                     
+                     # Merge back
+                     for c_data in chunk:
+                        snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                        cid = c_data["id"]
+                        
+                        analysis = results_map.get(cid, {
+                            "sentiment": "neutral",
+                            "score": 0.0,
+                            "emoji": False
+                        })
+                        
+                        processed_comments.append({
+                            "id": cid,
+                            "text": snippet["textDisplay"],
+                            "author": snippet["authorDisplayName"],
+                            "likeCount": snippet["likeCount"],
+                            "publishedAt": snippet["publishedAt"],
+                            "sentiment": analysis["sentiment"],
+                            "vader_sentiment": analysis["sentiment"], # Fallback/Aligned
+                            "vader_score": analysis["score"],
+                            "emoji_detected": 1 if analysis["emoji"] else 0,
+                            "topics": json.dumps([]) 
+                        })
+                 except Exception as e:
+                     print(f"Batch execution failed: {e}")
                 
         return {
             "video_id": vid_id,

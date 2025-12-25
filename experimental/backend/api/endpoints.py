@@ -318,41 +318,72 @@ def analyze_video(video_id: str, background_tasks: BackgroundTasks, db: Session 
             processed_count = 0
             
             # 2. Process Batches
-            for i in range(0, total_comments, COMMENTS_PER_BATCH):
-                batch_data = comments_data[i:i + COMMENTS_PER_BATCH]
-                comments_to_analyze = []
+            # Enforce Limit: Cap at MAX_GEMINI_CALLS * COMMENTS_PER_BATCH
+            limit_total = min(total_comments, MAX_GEMINI_CALLS * COMMENTS_PER_BATCH)
+            
+            # A. PRE-UPSERT all comments to DB (Sequential, Fast)
+            # This ensures all Comment records exist with basic info before we try to update them in random order
+            comments_to_process = comments_data[0:limit_total]
+            for c_data in comments_to_process:
+                snippet = c_data["snippet"]["topLevelComment"]["snippet"]
+                cid = c_data["id"]
+                comment = db.query(Comment).filter(Comment.id == cid).first()
+                if not comment:
+                    comment = Comment(id=cid, video_id=video_id)
+                    db.add(comment)
                 
+                # Update basic fields
+                comment.text = snippet["textDisplay"]
+                comment.author = snippet["authorDisplayName"]
+                comment.like_count = snippet["likeCount"]
+                comment.published_at = datetime.datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
+            
+            db.commit()
+
+            # B. Prepare Chunks for Parallel Analysis
+            chunks = []
+            for i in range(0, limit_total, COMMENTS_PER_BATCH):
+                 chunks.append((i, comments_data[i:i + COMMENTS_PER_BATCH]))
+
+            import concurrent.futures
+
+            def process_batch_live(start_idx, batch_data):
+                batch_id = f"b_{start_idx}"
+                comments_input = []
                 for c_data in batch_data:
                     snippet = c_data["snippet"]["topLevelComment"]["snippet"]
                     cid = c_data["id"]
-                    comment = db.query(Comment).filter(Comment.id == cid).first()
-                    if not comment:
-                        comment = Comment(id=cid, video_id=video_id)
-                        db.add(comment)
-                    comment.text = snippet["textDisplay"]
-                    comment.author = snippet["authorDisplayName"]
-                    comment.like_count = snippet["likeCount"]
-                    comment.published_at = datetime.datetime.fromisoformat(snippet["publishedAt"].replace('Z', '+00:00'))
-                    comments_to_analyze.append({"id": cid, "text": comment.text})
-
+                    comments_input.append({"id": cid, "text": snippet["textDisplay"]})
+                
                 # Gemini Call
-                batch_results = sentiment_service.analyze_comment_batch(comments_to_analyze, video_id, f"b_{i}")
+                return sentiment_service.analyze_comment_batch(comments_input, video_id, batch_id)
 
-                for res in batch_results.get("results", []):
-                    c = db.query(Comment).filter(Comment.id == res["comment_id"]).first()
-                    if c:
-                        c.sentiment = SentimentType(res["sentiment"])
-                        c.vader_score = res["score"]
-                        c.emoji_detected = 1 if res.get("emoji", False) else 0
+            # C. Run Parallel Analysis
+            # Use max_workers=5 to avoid hitting rate limits too hard (limit is 15 RPS usually for free tier)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_batch = {executor.submit(process_batch_live, i, chunk): (i, chunk) for i, chunk in chunks}
+                
+                for future in concurrent.futures.as_completed(future_to_batch):
+                    start_idx, batch_data = future_to_batch[future]
+                    try:
+                        batch_results = future.result()
+                        
+                        # D. Update DB with Analysis Results
+                        for res in batch_results.get("results", []):
+                             c = db.query(Comment).filter(Comment.id == res["comment_id"]).first()
+                             if c:
+                                 c.sentiment = SentimentType(res["sentiment"])
+                                 c.vader_score = res["score"]
+                                 c.emoji_detected = 1 if res.get("emoji", False) else 0
 
-                processed_count += len(batch_data)
-                db.commit()
+                        processed_count += len(batch_data)
+                        db.commit()
+                        
+                    except Exception as e:
+                         print(f"Batch failed: {e}")
 
-                # Yield Progress
-                yield f"data: {json.dumps({'status': 'processing', 'progress': processed_count, 'total': total_comments})}\n\n"
-
-                if i + COMMENTS_PER_BATCH < total_comments:
-                    time.sleep(THROTTLE_DELAY)
+                    # Yield Progress
+                    yield f"data: {json.dumps({'status': 'processing', 'progress': processed_count, 'total': total_comments})}\\n\\n"
 
             # 3. Finalize
             analytics = AnalyticsService(db)

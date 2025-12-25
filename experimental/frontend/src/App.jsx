@@ -90,12 +90,21 @@ function App() {
               });
             });
 
-            // Also refresh insights if mostly done
+            // Also refresh insights AND channel health if mostly done
             const allDone = vData.every(v => v.analysis_status !== 'processing');
             if (allDone) {
+              // Refresh Insights
               fetch(`http://localhost:8000/api/channel/${channelId}/insights`)
                 .then(r => r.json())
                 .then(iData => setChannelInsights(iData))
+                .catch(() => { });
+
+              // Refresh Channel Health
+              fetch(`http://localhost:8000/api/channel/${channelId}`)
+                .then(r => r.json())
+                .then(cData => {
+                  setActiveChannel(prev => ({ ...prev, ...cData }));
+                })
                 .catch(() => { });
             }
           })
